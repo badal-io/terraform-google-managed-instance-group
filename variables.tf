@@ -1,166 +1,95 @@
-/*
- * Copyright 2017 Google Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-variable module_enabled {
-  description = ""
-  default     = true
-}
-
-variable project {
+variable "project" {
   description = "The project to deploy to, if not set the default provider project is used."
   default     = ""
 }
 
-variable region {
-  description = "Region for cloud resources."
-  default     = "us-central1"
-}
-
-variable zone {
-  description = "Zone for managed instance groups."
-  default     = "us-central1-f"
-}
-
-variable network {
-  description = "Name of the network to deploy instances to."
-  default     = "default"
-}
-
-variable subnetwork {
-  description = "The subnetwork to deploy to"
-  default     = "default"
-}
-
-variable subnetwork_project {
-  description = "The project the subnetwork belongs to. If not set, var.project is used instead."
-  default     = ""
-}
-
-variable name {
-  description = "Name of the managed instance group."
-}
-
-variable size {
-  description = "Target size of the managed instance group."
-  default     = 1
-}
-
-variable startup_script {
-  description = "Content of startup-script metadata passed to the instance template."
-  default     = ""
-}
-
-variable access_config {
-  description = "The access config block for the instances. Set to [] to remove external IP."
-  type        = "list"
-
-  default = [
-    {},
-  ]
-}
-
-variable metadata {
-  description = "Map of metadata values to pass to instances."
-  type        = "map"
-  default     = {}
-}
-
-variable can_ip_forward {
-  description = "Allow ip forwarding."
-  default     = false
-}
-
-variable network_ip {
-  description = "Set the network IP of the instance in the template. Useful for instance groups of size 1."
-  default     = ""
-}
-
-variable machine_type {
+variable "machine_type" {
   description = "Machine type for the VMs in the instance group."
   default     = "f1-micro"
 }
 
-variable compute_image {
-  description = "Image used for compute VMs."
-  default     = "projects/debian-cloud/global/images/family/debian-9"
+variable "main_disk" {
+  description = "This is for the main disk that will load your image"
+  type        = "map"
+  default = {
+    # auto_delete - (Optional) Whether or not the disk should be auto-deleted. This defaults to true.
+    auto_delete   = true
+    # device_name - (Optional) A unique device name that is reflected into the /dev/ tree of a Linux operating system running within the instance. If not specified, the server chooses a default device name to apply to this disk.
+    device_name   = null
+    # disk_name - (Optional) Name of the disk. When not provided, this defaults to the name of the instance.
+    disk_name     = null
+    # source_image - (Required if source not set) The image from which to initialize this disk. This can be one of: the image's self_link, projects/{project}/global/images/{image}, projects/{project}/global/images/family/{family}, global/images/{image}, global/images/family/{family}, family/{family}, {project}/{family}, {project}/{image}, {family}, or {image}.
+    source_image  = "projects/debian-cloud/global/images/family/debian-9"
+    # mode - (Optional) The mode in which to attach this disk, either READ_WRITE or READ_ONLY. If you are attaching or creating a boot disk, this must read-write mode.
+    mode          = "READ_WRITE"
+    # disk_type - (Optional) The GCE disk type. Can be either "pd-ssd", "local-ssd", or "pd-standard".
+    disk_type     = "pd-ssd"
+    # disk_size_gb - (Optional) The size of the image in gigabytes. If not specified, it will inherit the size of its base image.
+    disk_size_gb  = null
+    #type - (Optional) The type of GCE disk, can be either "SCRATCH" or "PERSISTENT".
+    type          = "PERSISTENT"
+  }
 }
 
-variable wait_for_instances {
-  description = "Wait for all instances to be created/updated before returning"
-  default     = false
-}
-
-variable update_strategy {
-  description = "The strategy to apply when the instance template changes."
-  default     = "NONE"
-}
-
-variable rolling_update_policy {
-  description = "The rolling update policy when update_strategy is ROLLING_UPDATE"
+variable "additional_disks" {
+  description = "List of Map consisting of Disk block"
   type        = "list"
   default     = []
 }
 
-variable service_port {
-  description = "Port the service is listening on."
+variable "name" {
+  description = "Name of the managed instance group."
 }
 
-variable service_port_name {
-  description = "Name of the port the service is listening on."
+variable "can_ip_forward" {
+  description = "Allow ip forwarding."
+  default     = false
 }
 
-variable target_tags {
-  description = "Tag added to instances for firewall and networking."
-  type        = "list"
-  default     = ["allow-service"]
-}
-
-variable instance_labels {
+variable "instance_labels" {
   description = "Labels added to instances."
   type        = "map"
   default     = {}
 }
 
-variable target_pools {
-  description = "The target load balancing pools to assign this group to."
+variable "metadata" {
+  description = "Map of metadata values to pass to instances."
+  type        = "map"
+  default     = {}
+}
+
+variable "startup_script" {
+  description = "Content of startup-script metadata passed to the instance template."
+  default     = ""
+}
+
+variable "interfaces" {
+  description = "List of Map consisting of network interface"
   type        = "list"
   default     = []
 }
 
-variable depends_id {
-  description = "The ID of a resource that the instance group depends on."
-  default     = ""
+variable "region" {
+  description = "Region for cloud resources."
+  default     = "us-central1"
 }
 
-variable local_cmd_create {
-  description = "Command to run on create as local-exec provisioner for the instance group manager."
-  default     = ":"
+variable "scheduling" {
+  description = "Map outlining schedule settings"
+  type        = "map"
+  default     = {
+    automatic_restart   = true
+    on_host_maintenance = "MIGRATE"
+    preemptible         = false
+  }
 }
 
-variable local_cmd_destroy {
-  description = "Command to run on destroy as local-exec provisioner for the instance group manager."
-  default     = ":"
-}
-
-variable service_account_email {
+variable "service_account_email" {
   description = "The email of the service account for the instance template."
   default     = "default"
 }
 
-variable service_account_scopes {
+variable "service_account_scopes" {
   description = "List of scopes for the instance template service account"
   type        = "list"
 
@@ -172,134 +101,86 @@ variable service_account_scopes {
   ]
 }
 
-variable zonal {
-  description = "Create a single-zone managed instance group. If false, a regional managed instance group is created."
-  default     = true
+variable "target_tags" {
+  description = "Tag added to instances for firewall and networking."
+  type        = "list"
+  default     = ["allow-service"]
 }
 
-variable distribution_policy_zones {
-  description = "The distribution policy for this managed instance group when zonal=false. Default is all zones in given region."
+# Health Checks
+variable "hc_check_interval" {
+  description = "How often (in seconds) to send a health check"
+  default     = "5"
+}
+
+variable "hc_description" {
+  description = "Descripton for health check"
+  default     = "Health Check - Provisioned by Terraform"
+}
+
+variable "hc_healthy_threshold" {
+  description = "A so-far unhealthy instance will be marked healthy after this many consecutive successes"
+  default     = "2"
+}
+
+variable "hc_timeout" {
+  description = "How long (in seconds) to wait before claiming failure. The default value is 5 seconds. It is invalid for timeoutSec to have greater value than checkIntervalSec"
+  default     = "5"
+}
+
+variable "hc_unhealthy_threshold" {
+  description = "A so-far healthy instance will be marked unhealthy after this many consecutive failures"
+  default     = "2"
+}
+
+variable "http_health_check" {
+  description = "http health check. Pass map with keys as described at https://www.terraform.io/docs/providers/google/r/compute_health_check.html#timeout_sec"
   type        = "list"
   default     = []
 }
 
-variable ssh_source_ranges {
-  description = "Network ranges to allow SSH from"
-  type        = "list"
-  default     = ["0.0.0.0/0"]
-}
-
-variable disk_auto_delete {
-  description = "Whether or not the disk should be auto-deleted."
-  default     = true
-}
-
-variable disk_type {
-  description = "The GCE disk type. Can be either pd-ssd, local-ssd, or pd-standard."
-  default     = "pd-ssd"
-}
-
-variable disk_size_gb {
-  description = "The size of the image in gigabytes. If not specified, it will inherit the size of its base image."
-  default     = 0
-}
-
-variable mode {
-  description = "The mode in which to attach this disk, either READ_WRITE or READ_ONLY."
-  default     = "READ_WRITE"
-}
-
-variable "preemptible" {
-  description = "Use preemptible instances - lower price but short-lived instances. See https://cloud.google.com/compute/docs/instances/preemptible for more details"
-  default     = "false"
-}
-
-variable "automatic_restart" {
-  description = "Automatically restart the instance if terminated by GCP - Set to false if using preemptible instances"
-  default     = "true"
-}
-
-/* Autoscaling */
-variable autoscaling {
-  description = "Enable autoscaling."
-  default     = false
-}
-
-variable max_replicas {
-  description = "Autoscaling, max replicas."
-  default     = 5
-}
-
-variable min_replicas {
-  description = "Autoscaling, min replics."
-  default     = 1
-}
-
-variable cooldown_period {
-  description = "Autoscaling, cooldown period in seconds."
-  default     = 60
-}
-
-variable autoscaling_cpu {
-  description = "Autoscaling, cpu utilization policy block as single element array. https://www.terraform.io/docs/providers/google/r/compute_autoscaler.html#cpu_utilization"
+variable "https_health_check" {
+  description = "https health check. Pass map with keys as described at https://www.terraform.io/docs/providers/google/r/compute_health_check.html#timeout_sec"
   type        = "list"
   default     = []
 }
 
-variable autoscaling_metric {
-  description = "Autoscaling, metric policy block as single element array. https://www.terraform.io/docs/providers/google/r/compute_autoscaler.html#metric"
+variable "tcp_health_check" {
+  description = "tcp health check. Pass map with keys as described at https://www.terraform.io/docs/providers/google/r/compute_health_check.html#timeout_sec"
   type        = "list"
   default     = []
 }
 
-variable autoscaling_lb {
-  description = "Autoscaling, load balancing utilization policy block as single element array. https://www.terraform.io/docs/providers/google/r/compute_autoscaler.html#load_balancing_utilization"
+variable "ssl_health_check" {
+  description = "ssl health check. Pass map with keys as described at https://www.terraform.io/docs/providers/google/r/compute_health_check.html#timeout_sec"
   type        = "list"
   default     = []
 }
 
-/* Health checks */
-variable http_health_check {
-  description = "Enable or disable the http health check for auto healing."
-  default     = true
+# Instance Group Manager
+variable "igm_description" {
+  description = "An optional textual description of the instance group manager."
+  default = "Instance group Manager - Provisioned by Terraform"
 }
 
-variable hc_initial_delay {
-  description = "Health check, intial delay in seconds."
-  default     = 30
+variable "named_port" {
+  description = "The named port configuration."
+  type        = "list"
+  default = []
 }
 
-variable hc_interval {
-  description = "Health check, check interval in seconds."
-  default     = 30
+variable "igm_target_size" {
+  description = "The target number of running instances for this managed instance group. This value should always be explicitly set unless this resource is attached to an autoscaler, in which case it should never be set"
+  default = 0
 }
 
-variable hc_timeout {
-  description = "Health check, timeout in seconds."
-  default     = 10
+variable "wait_for_instances" {
+  description = "Wait for all instances to be created/updated before returning"
+  default = false
 }
 
-variable hc_healthy_threshold {
-  description = "Health check, healthy threshold."
-  default     = 1
-}
-
-variable hc_unhealthy_threshold {
-  description = "Health check, unhealthy threshold."
-  default     = 10
-}
-
-variable hc_port {
-  description = "Health check, health check port, if different from var.service_port, if not given, var.service_port is used."
-  default     = ""
-}
-
-variable hc_path {
-  description = "Health check, the http path to check."
-  default     = "/"
-}
-
-variable ssh_fw_rule {
-  description = "Whether or not the SSH Firewall Rule should be created"
-  default     = true
+variable target_pools {
+  description = "The target load balancing pools to assign this group to."
+  type        = "list"
+  default     = []
 }

@@ -1,65 +1,103 @@
-/*
- * Copyright 2017 Google Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+/******************************************
+	PROJECT ID (if not passed through)
+ *****************************************/
+data "google_client_config" "default" {}
+
+locals {
+  project-id = "${length(var.project) > 0 ? var.project : data.google_client_config.default.project}"
+}
 
 resource "google_compute_instance_template" "default" {
-  count       = "${var.module_enabled ? 1 : 0}"
-  project     = "${var.project}"
-  name_prefix = "default-"
-
+  project      = "${local.project-id}"
+  name_prefix  = "${var.name}-instance-template"
   machine_type = "${var.machine_type}"
 
   region = "${var.region}"
 
-  tags = ["${concat(list("allow-ssh"), var.target_tags)}"]
+  tags = "${concat(list("allow-ssh"), var.target_tags)}"
 
   labels = "${var.instance_labels}"
 
-  network_interface {
-    network            = "${var.subnetwork == "" ? var.network : ""}"
-    subnetwork         = "${var.subnetwork}"
-    access_config      = ["${var.access_config}"]
-    address            = "${var.network_ip}"
-    subnetwork_project = "${var.subnetwork_project == "" ? var.project : var.subnetwork_project}"
-  }
-
   can_ip_forward = "${var.can_ip_forward}"
-
-  disk {
-    auto_delete  = "${var.disk_auto_delete}"
-    boot         = true
-    source_image = "${var.compute_image}"
-    type         = "PERSISTENT"
-    disk_type    = "${var.disk_type}"
-    disk_size_gb = "${var.disk_size_gb}"
-    mode         = "${var.mode}"
-  }
 
   service_account {
     email  = "${var.service_account_email}"
-    scopes = ["${var.service_account_scopes}"]
+    scopes = "${var.service_account_scopes}"
   }
 
-  metadata = "${merge(
-    map("startup-script", "${var.startup_script}", "tf_depends_id", "${var.depends_id}"),
-    var.metadata
-  )}"
+  disk {
+    auto_delete   = "${lookup(var.main_disk, "auto_delete", true)}"
+    boot          = true
+    source_image  = "${lookup(var.main_disk, "source_image", "projects/debian-cloud/global/images/family/debian-9")}"
+    device_name   = "${lookup(var.main_disk, "device_name", null)}"
+    mode          = "${lookup(var.main_disk, "device_name", "READ_WRITE")}"
+    type          = "${lookup(var.main_disk, "type", "PERSISTENT")}"
+    disk_name     = "${lookup(var.main_disk, "disk_name", null)}"
+    disk_type     = "${lookup(var.main_disk, "type", "pd-ssd")}"
+    disk_size_gb  = "${lookup(var.main_disk, "disk_size_gb", null)}"
+  }
+  
+  dynamic "disk" {
+    for_each = [for d in var.additional_disks: {
+      # auto_delete - (Optional) Whether or not the disk should be auto-deleted. This defaults to true.
+      auto_delete = lookup(d, "auto_delete", true)
+      # device_name - (Optional) A unique device name that is reflected into the /dev/ tree of a Linux operating system running within the instance. If not specified, the server chooses a default device name to apply to this disk.
+      device_name = lookup(d, "device_name", null)
+      # disk_name - (Optional) Name of the disk. When not provided, this defaults to the name of the instance.
+      disk_name = lookup(d, "disk_name", null)
+      # mode - (Optional) The mode in which to attach this disk, either READ_WRITE or READ_ONLY. If you are attaching or creating a boot disk, this must read-write mode.
+      mode = lookup(d, "mode", "READ_WRITE")
+      # source - (Required if source_image not set) The name (not self_link) of the disk (such as those managed by google_compute_disk) to attach.
+      source = d.source
+      # disk_type - (Optional) The GCE disk type. Can be either "pd-ssd", "local-ssd", or "pd-standard".
+      disk_type = lookup(d, "disk_type", "pd-ssd")
+      # disk_size_gb - (Optional) The size of the image in gigabytes. If not specified, it will inherit the size of its base image.
+      disk_size_gb = lookup(d, "disk_size_gb", null)
+      #type - (Optional) The type of GCE disk, can be either "SCRATCH" or "PERSISTENT".
+      type = lookup(d, "type", "PERSISTENT")
+    }]
+
+    content {
+      auto_delete   = disk.value.auto_delete
+      boot          = disk.value.boot
+      device_name   = disk.value.device_name
+      disk_name     = disk.value.disk_name
+      mode          = disk.value.mode
+      source        = disk.value.source
+      disk_type     = disk.value.disk_type
+      disk_size_gb  = disk.value.disk_size_gb
+      type          = disk.value.type
+    }
+  }
+
+  dynamic "network_interface" {
+    for_each = [for n in var.interfaces: {
+      network            = lookup(n, "network", null)
+      subnetwork         = lookup(n, "subnetwork", null)
+      network_ip         = lookup(n, "network_ip", null)
+      nat_ip             = lookup(n, "nat_ip", null)
+      network_tier       = lookup(n, "network_tier", "PREMIUM")
+    }]
+
+    content {
+      network            = network_interface.value.network
+      subnetwork         = network_interface.value.subnetwork
+      network_ip         = network_interface.value.network_ip
+      access_config {
+        nat_ip           = network_interface.value.nat_ip
+        network_tier     = network_interface.value.network_tier
+      }
+    }
+  }
+
+  metadata = "${var.metadata}"
+
+  metadata_startup_script = "${var.startup_script}"
 
   scheduling {
-    preemptible       = "${var.preemptible}"
-    automatic_restart = "${var.automatic_restart}"
+    preemptible         = "${var.scheduling["preemptible"]}"
+    automatic_restart   = "${var.scheduling["automatic_restart"]}"
+    on_host_maintenance = "${var.scheduling["on_host_maintenance"]}"
   }
 
   lifecycle {
@@ -67,218 +105,114 @@ resource "google_compute_instance_template" "default" {
   }
 }
 
-resource "google_compute_instance_group_manager" "default" {
-  count              = "${var.module_enabled && var.zonal ? 1 : 0}"
-  project            = "${var.project}"
-  name               = "${var.name}"
-  description        = "compute VM Instance Group"
-  wait_for_instances = "${var.wait_for_instances}"
+resource "google_compute_health_check" "default" {
+  project      = "${local.project-id}"
+  name         = "${var.name}-health-check"
+  description  = "${var.hc_description}"
 
-  base_instance_name = "${var.name}"
+  check_interval_sec  = "${var.hc_check_interval}"
+  healthy_threshold   = "${var.hc_healthy_threshold}"
+  timeout_sec         = "${var.hc_timeout}"
+  unhealthy_threshold = "${var.hc_unhealthy_threshold}"
 
-  instance_template = "${google_compute_instance_template.default.self_link}"
+  dynamic "http_health_check" {
+    for_each = [for h in var.http_health_check: {
+      host          = lookup(h, "host", null)
+      request_path  = lookup(h, "request_path", "/")
+      response      = lookup(h, "response", null)
+      port          = lookup(h, "port", "80")
+      proxy_header  = lookup(h, "proxy_header", "NONE")
 
-  zone = "${var.zone}"
+    }]
 
-  update_strategy = "${var.update_strategy}"
-
-  rolling_update_policy = ["${var.rolling_update_policy}"]
-
-  target_pools = ["${var.target_pools}"]
-
-  // There is no way to unset target_size when autoscaling is true so for now, jsut use the min_replicas value.
-  // Issue: https://github.com/terraform-providers/terraform-provider-google/issues/667
-  target_size = "${var.autoscaling ? var.min_replicas : var.size}"
-
-  named_port {
-    name = "${var.service_port_name}"
-    port = "${var.service_port}"
+    content {
+      host         = http_health_check.value.host
+      request_path = http_health_check.value.request_path
+      response     = http_health_check.value.response
+      port         = http_health_check.value.port
+      proxy_header = http_health_check.value.proxy_header
+    }
   }
 
-  auto_healing_policies = {
-    health_check      = "${var.http_health_check ? element(concat(google_compute_health_check.mig-health-check.*.self_link, list("")), 0) : ""}"
-    initial_delay_sec = "${var.hc_initial_delay}"
+  dynamic "https_health_check" {
+    for_each = [for h in var.https_health_check: {
+      host          = lookup(h, "host", null)
+      request_path  = lookup(h, "request_path", "/")
+      response      = lookup(h, "response", null)
+      port          = lookup(h, "port", "443")
+      proxy_header  = lookup(h, "proxy_header", "NONE")
+
+    }]
+
+    content {
+      host         = https_health_check.value.host
+      request_path = https_health_check.value.request_path
+      response     = https_health_check.value.response
+      port         = https_health_check.value.port
+      proxy_header = https_health_check.value.proxy_header
+    }
   }
 
-  provisioner "local-exec" {
-    when    = "destroy"
-    command = "${var.local_cmd_destroy}"
+  dynamic "tcp_health_check" {
+    for_each = [for h in var.tcp_health_check: {
+      request       = lookup(h, "request", null)
+      response      = lookup(h, "response", null)
+      port          = lookup(h, "port", "443")
+      proxy_header  = lookup(h, "proxy_header", "NONE")
+
+    }]
+
+    content {
+      request      = tcp_health_check.value.request
+      response     = tcp_health_check.value.response
+      port         = tcp_health_check.value.port
+      proxy_header = tcp_health_check.value.proxy_header
+    }
   }
 
-  provisioner "local-exec" {
-    when    = "create"
-    command = "${var.local_cmd_create}"
+  dynamic "ssl_health_check" {
+    for_each = [for h in var.ssl_health_check: {
+      request       = lookup(h, "request", null)
+      response      = lookup(h, "response", null)
+      port          = lookup(h, "port", "443")
+      proxy_header  = lookup(h, "proxy_header", "NONE")
+
+    }]
+
+    content {
+      request      = ssl_health_check.value.request
+      response     = ssl_health_check.value.response
+      port         = ssl_health_check.value.port
+      proxy_header = ssl_health_check.value.proxy_header
+    }
   }
-}
-
-resource "google_compute_autoscaler" "default" {
-  count   = "${var.module_enabled && var.autoscaling && var.zonal ? 1 : 0}"
-  name    = "${var.name}"
-  zone    = "${var.zone}"
-  project = "${var.project}"
-  target  = "${google_compute_instance_group_manager.default.self_link}"
-
-  autoscaling_policy = {
-    max_replicas               = "${var.max_replicas}"
-    min_replicas               = "${var.min_replicas}"
-    cooldown_period            = "${var.cooldown_period}"
-    cpu_utilization            = ["${var.autoscaling_cpu}"]
-    metric                     = ["${var.autoscaling_metric}"]
-    load_balancing_utilization = ["${var.autoscaling_lb}"]
-  }
-}
-
-data "google_compute_zones" "available" {
-  project = "${var.project}"
-  region  = "${var.region}"
-}
-
-locals {
-  distribution_zones = {
-    default = ["${data.google_compute_zones.available.names}"]
-    user    = ["${var.distribution_policy_zones}"]
-  }
-
-  dependency_id = "${element(concat(null_resource.region_dummy_dependency.*.id, list("disabled")), 0)}"
 }
 
 resource "google_compute_region_instance_group_manager" "default" {
-  count              = "${var.module_enabled && ! var.zonal ? 1 : 0}"
-  project            = "${var.project}"
-  name               = "${var.name}"
-  description        = "compute VM Instance Group"
-  wait_for_instances = "${var.wait_for_instances}"
+  project = "${local.project-id}"
+
+  name        = "${var.name}-igm"
+  description = "${var.igm_description}"
 
   base_instance_name = "${var.name}"
+  instance_template  = "${google_compute_instance_template.default.self_link}"
+  region             = "${var.region}"
 
-  instance_template = "${google_compute_instance_template.default.self_link}"
+  wait_for_instances = "${var.wait_for_instances}"
 
-  region = "${var.region}"
+  target_pools = "${var.target_pools}"
 
-  update_strategy = "${var.update_strategy}"
+  dynamic "named_port" {
+    for_each = [for np in var.named_port: {
+      name = np.name
+      port = np.port
+    }]
 
-  rolling_update_policy = ["${var.rolling_update_policy}"]
-
-  distribution_policy_zones = ["${local.distribution_zones["${length(var.distribution_policy_zones) == 0 ? "default" : "user"}"]}"]
-
-  target_pools = ["${var.target_pools}"]
-
-  // There is no way to unset target_size when autoscaling is true so for now, jsut use the min_replicas value.
-  // Issue: https://github.com/terraform-providers/terraform-provider-google/issues/667
-  target_size = "${var.autoscaling ? var.min_replicas : var.size}"
-
-  auto_healing_policies {
-    health_check      = "${var.http_health_check ? element(concat(google_compute_health_check.mig-health-check.*.self_link, list("")), 0) : ""}"
-    initial_delay_sec = "${var.hc_initial_delay}"
+    content {
+      name = named_port.value.name
+      port = named_port.value.port
+    }
   }
 
-  named_port {
-    name = "${var.service_port_name}"
-    port = "${var.service_port}"
-  }
-
-  provisioner "local-exec" {
-    when    = "destroy"
-    command = "${var.local_cmd_destroy}"
-  }
-
-  provisioner "local-exec" {
-    when    = "create"
-    command = "${var.local_cmd_create}"
-  }
-
-  // Initial instance verification can take 10-15m when a health check is present.
-  timeouts = {
-    create = "${var.http_health_check ? "15m" : "5m"}"
-  }
-}
-
-resource "google_compute_region_autoscaler" "default" {
-  count   = "${var.module_enabled && var.autoscaling && ! var.zonal ? 1 : 0}"
-  name    = "${var.name}"
-  region  = "${var.region}"
-  project = "${var.project}"
-  target  = "${google_compute_region_instance_group_manager.default.self_link}"
-
-  autoscaling_policy = {
-    max_replicas               = "${var.max_replicas}"
-    min_replicas               = "${var.min_replicas}"
-    cooldown_period            = "${var.cooldown_period}"
-    cpu_utilization            = ["${var.autoscaling_cpu}"]
-    metric                     = ["${var.autoscaling_metric}"]
-    load_balancing_utilization = ["${var.autoscaling_lb}"]
-  }
-}
-
-resource "null_resource" "dummy_dependency" {
-  count      = "${var.module_enabled && var.zonal ? 1 : 0}"
-  depends_on = ["google_compute_instance_group_manager.default"]
-
-  triggers = {
-    instance_template = "${element(google_compute_instance_template.default.*.self_link, 0)}"
-  }
-}
-
-resource "null_resource" "region_dummy_dependency" {
-  count      = "${var.module_enabled && ! var.zonal ? 1 : 0}"
-  depends_on = ["google_compute_region_instance_group_manager.default"]
-
-  triggers = {
-    instance_template = "${element(google_compute_instance_template.default.*.self_link, 0)}"
-  }
-}
-
-resource "google_compute_firewall" "default-ssh" {
-  count   = "${var.module_enabled && var.ssh_fw_rule ? 1 : 0}"
-  project = "${var.subnetwork_project == "" ? var.project : var.subnetwork_project}"
-  name    = "${var.name}-vm-ssh"
-  network = "${var.network}"
-
-  allow {
-    protocol = "tcp"
-    ports    = ["22"]
-  }
-
-  source_ranges = ["${var.ssh_source_ranges}"]
-  target_tags   = ["allow-ssh"]
-}
-
-resource "google_compute_health_check" "mig-health-check" {
-  count   = "${var.module_enabled && var.http_health_check ? 1 : 0}"
-  name    = "${var.name}"
-  project = "${var.project}"
-
-  check_interval_sec  = "${var.hc_interval}"
-  timeout_sec         = "${var.hc_timeout}"
-  healthy_threshold   = "${var.hc_healthy_threshold}"
-  unhealthy_threshold = "${var.hc_unhealthy_threshold}"
-
-  http_health_check {
-    port         = "${var.hc_port == "" ? var.service_port : var.hc_port}"
-    request_path = "${var.hc_path}"
-  }
-}
-
-resource "google_compute_firewall" "mig-health-check" {
-  count   = "${var.module_enabled && var.http_health_check ? 1 : 0}"
-  project = "${var.subnetwork_project == "" ? var.project : var.subnetwork_project}"
-  name    = "${var.name}-vm-hc"
-  network = "${var.network}"
-
-  allow {
-    protocol = "tcp"
-    ports    = ["${var.hc_port == "" ? var.service_port : var.hc_port}"]
-  }
-
-  source_ranges = ["130.211.0.0/22", "35.191.0.0/16"]
-  target_tags   = ["${var.target_tags}"]
-}
-
-data "google_compute_instance_group" "zonal" {
-  count   = "${var.zonal ? 1 : 0}"
-  zone    = "${var.zone}"
-  project = "${var.project}"
-
-  // Use the dependency id which is recreated whenever the instance template changes to signal when to re-read the data source.
-  name = "${element(split("|", "${local.dependency_id}|${element(concat(google_compute_instance_group_manager.default.*.name, list("unused")), 0)}"), 1)}"
+  target_size = "${var.igm_target_size}"
 }
